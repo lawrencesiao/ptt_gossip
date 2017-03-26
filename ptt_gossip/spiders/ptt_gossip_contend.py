@@ -8,6 +8,7 @@ from scrapy.http import FormRequest
 from bs4 import BeautifulSoup
 import bs4
 import sys
+from utils import notification
 
 def loopUntilA(text, firstElement,nextATag,flag=True):
     if flag:
@@ -50,9 +51,10 @@ class PTTSpiderContend(scrapy.Spider):
     _retries = 0
     MAX_RETRY = 10
 
-    _pages = 21326
-    MAX_PAGES = 21325
+    _pages = 20005
+    MAX_PAGES = 19999
 
+    _pages_ = _pages
     def parse(self, response):
 
         domain = 'https://www.ptt.cc/bbs/Gossiping/'
@@ -67,8 +69,10 @@ class PTTSpiderContend(scrapy.Spider):
                 logging.warning('you cannot pass')
 
         else:
+            logging.info('now finished' + str(float(self.MAX_PAGES- self._pages)/float(self._pages_- self.MAX_PAGES)*100) + '%')
+
             self._pages -= 1
-            print "next pageggggg"
+
             for href in response.css('.r-ent > div.title > a::attr(href)'):
                 url = response.urljoin(href.extract())
                 yield scrapy.Request(url, callback=self.parse_post)
@@ -79,6 +83,7 @@ class PTTSpiderContend(scrapy.Spider):
 
             else:
                 logging.warning('max pages reached')
+                notification.notification(self)
 
     def parse_post(self, response):
 
@@ -86,7 +91,6 @@ class PTTSpiderContend(scrapy.Spider):
         item = PostItem()
         author = u'作者'
         time = u'時間'
-        print "here"
         item['title'] = response.xpath(
             '//meta[@property="og:title"]/@content')[0].extract()
 
