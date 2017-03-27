@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 import bs4
 import sys
 from utils import notification
+import re
 
 def loopUntilA(text, firstElement,nextATag,flag=True):
     if flag:
@@ -26,10 +27,10 @@ def loopUntilA(text, firstElement,nextATag,flag=True):
             return loopUntilA(text, firstElement.next,nextATag,flag=False)
         
 
+
 def findNextTag(soup):
-    for tag in soup.findAll('span',{ "class" : "f2" }):
-        if dict(tag.attrs)["class"] == ['f2']:
-            return tag
+    return soup(text=re.compile(u'批踢踢實業坊\(ptt.cc\)'))[0].parent
+
 
 def getContend(soup):
 
@@ -51,8 +52,8 @@ class PTTSpiderContend(scrapy.Spider):
     _retries = 0
     MAX_RETRY = 10
 
-    _pages = 20005
-    MAX_PAGES = 19999
+    _pages = 18920
+    MAX_PAGES = 18900
 
     _pages_ = _pages
     def parse(self, response):
