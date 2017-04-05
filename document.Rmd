@@ -1,0 +1,163 @@
+---
+title: "ptt gossip 噓文數預測神器"
+author: "Lawrence Siao"
+date: "April 5, 2017"
+output: html_document
+---
+
+```{r echo=FALSE, message=FALSE}
+library(dplyr)
+library(knitr)
+library(tidyr)
+
+fianls = read.csv('data/finals_meta.csv',stringsAsFactors = F)
+
+```
+## Outline
+
+* Problem Statement
+* Web Spider
+* ETL
+* Topic Model
+* CNN model
+* ToDo
+
+## Problem Statement
+
+擷取八卦版，標題為[新聞] 的文章，並預測其被噓次數。
+
+## Web Spider
+
+使用Scrapy，抓取八卦版全部文章 (使用四台t2-micro機器抓了快兩天)<br>
+在將其轉為分辨pandas分析的csv檔 <br>
+**code:**<br>
+**(src/json_to_csv.py)**
+
+## ETL
+
+filtered 掉標題為[新聞] 且 不是Re: 或Fw:的文章後 <br>
+<br>
+
+-   首先觀察其推文數統計值:<br>
+```{r echo=FALSE,message=FALSE}
+summary(fianls$n_push)
+```
+<br>
+
+-   箭頭數統計值:<br>
+```{r echo=FALSE,message=FALSE}
+summary(fianls$n_neutral)
+```
+<br>
+
+-   噓文數統計值:<br>
+```{r echo=FALSE,message=FALSE}
+summary(fianls$n_hate)
+```
+<br>
+
+-   平均每篇文章噓數，以發文時間(小時)分群<br>
+
+
+```{r echo=FALSE,message=FALSE}
+knitr::kable(fianls %>% group_by(hour) %>% summarise(mean=mean(n_hate),sd=sd(n_hate)), format = "markdown")
+```
+可看出似乎有幾個斷點存在 1. 18-03點  2.04-08點 3. 09-17點 <br>
+其中於04-08點發的文章噓數通常較高， <br>
+接下來是09-17點發的， <br>
+最低的通常是18-03點發的文章 <br>
+<br>
+因此我們可以根據其發文時間點給定新的Tag，依序為**WakeUp,Work,OutOfWork**<br>
+<br>
+
+-   噓文數以發文時間(weekday)分群<br>
+```{r echo=FALSE,message=FALSE}
+knitr::kable(fianls %>% group_by(weekday) %>% summarise(mean=mean(n_hate),sd=sd(n_hate)), format = "markdown")
+```
+可以看出似乎禮拜日和禮拜三噓文數較高，而禮拜五噓文數較低，但差距不大。<br>
+因此使用T-test來檢定這兩個群體是不是來自不同母體<br>
+<br>
+```{r echo=FALSE,message=FALSE}
+t.test(fianls[fianls$weekday=='Wednesday','n_hate'],fianls[fianls$weekday=='Friday','n_hate'])$p.value
+```
+p_value 遠遠高過於 0.05，因此我們無法拒絕他們來自不同母體的假設<br>
+<br>
+
+-   weekday v.s hour <br>
+接下來看weekay vs hour的heatmap, 越紅代表該時段發文的噓文數越低，越黃代表越高<br>
+```{r echo=FALSE,message=FALSE}
+
+a = fianls %>% group_by(weekday,hour) %>% summarise( mean = mean(n_hate))
+a = as.data.frame(spread(a, weekday,mean))
+rownames(a) = a$hour
+a = a[,c('Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday')]
+
+a = data.matrix(a)
+
+heatmap(a, Rowv = NA, Colv = NA, scale = "column",
+        main = "heatmap of n_hate")
+```
+<br>
+沒有特別的趨勢Q_Q<br>
+
+## Topic Model
+以ptt文章來講，要判斷該文的回覆率和噓文數，該文章的內容是不是符合最近的'風向'是
+很重要的，因此為了找出能代表'風向'的feature，這裡使用LDA based (Latent Dirichlet allocation) 的topic model，來提文章分主題。<br>
+簡單的來說，Topic Model選定好k個主題後，<br>
+會output各個主題是由各哪些關鍵詞組成的<br>
+ex: topic1 : 政府、勞動部、一例一休  topic2：小模、土豪、命案、W飯店<br>
+<br>
+以及各個文章文章是由哪些哪些主題組成：<br>
+ex: document1: [(0.2, topic1), (0.6, topic3),(0.2, topic5)]<br>
+<br>
+步驟如下:<br>
+1.因為是中文文章，因此必須先用jieba斷詞<br>
+2.再把斷詞後的結果為每個文章內的每個詞算出其tf-idf值<br>
+3.選定tf-idf 0.1，tf-idf >0.1的詞彙留下當作該文章的關鍵詞<br>
+4.選定前兩週的文章內容去train Topic<br> Model，然後根據每篇文章的噓文數、推文數、和箭頭數來計算每個主題的噓文指數、推文指數、和箭頭指數。<br>
+ex: document1 被分類為[(0.2, topic1), (0.6, topic3),(0.2, topic5)]，而其獲得20噓，30推，40箭頭。<br>
+document2 被分類為[(0.3, topic1), (0.5, topic3),(0.2, topic5)]，而其獲得40噓，50推，60箭頭。<br>
+因此在document1上，topic1獲得(0.2\*20+0.3\*40)/(0.2+0.3)分的的噓文指數<br>
+<br>
+<br>
+接下來用該model去判斷接下來六小時文章的主題，根據過去兩週train好的model裡各主題的噓、推、箭頭指數，去判斷該文章的噓、推、箭頭指數。<br>
+ex:documet1 為 [(0.2, topic1), (0.6, topic3),(0.2, topic5)]，而topic1的噓文指數為23,topic3的噓文指數為26,topic5的噓文指數為33。<br>
+因此documet1的噓文指數為0.2\*23 + 0.6\*26 + 0.2\*33<br>
+<br>
+最後將全部的時間切成每六小時一個區段，每六小時跑一次往前兩週的model來判斷未來的六小時文章的噓、推、箭頭指數，再將這三個指數當做文章的三個features<br>
+<br>
+
+**code:**<br>
+**src/tfidf.py**<br>
+**src/topic_model_features_generator.py**<br>
+
+## CNN model 
+
+除此之外利用word embedding、n-gram、結合而成的CNN model (convolution neural network)，可以有效擷取文章的前後句的資訊。這個model已經證實在判斷文章的總類上
+有很好的效果(http://www.wildml.com/2015/12/implementing-a-cnn-for-text-classification-in-tensorflow/)，而這裡我們要做的事將這個model的response改成regression，並用RMSE當做cost function，以及要在最後的fully-connected層之前加上我們前面求得的meta features(前面算的hour_tag和文章的噓文指數、推文指數、箭頭指數等四個)。
+
+
+## Results
+比較模型的效果<br>
+<br>
+baseline1: 以全部文章平均噓數來做預測的話RMSE為17.20793<br>
+baseline2: 以前一天的文章平均噓數來做預測的話RMSE為17.24406<br>
+basic CNN: 純粹 CNN model未加入任何meta feature，RMSE為15.1172<br>
+CNN with 3 meta-features: 純粹 CNN text model加入噓文指數、推文指數、箭頭指數，RMSE為13.8578<br>
+CNN with 4 meta-features: 純粹 CNN text model加入噓文指數、推文指數、箭頭指數以及hour-tag，RMSE為13.7701<br>
+
+
+## ToDo
+
+1. 在jieba的斷詞上還是有很多詞沒有斷的很好，所能用人工的方式加入一些domain knowledge去加入詞彙，或者用transfer learning的方式找一些別人段好的詞庫，效果將會更好。
+2. 目險選用的topic model(LDA )目前使用的是bag of words的方式，這個方式的缺點是沒有辦法考慮前後文的關係，之前文章還有看到現在比較進階的是結合words-embedding的方式來分主題，可以更考慮到詞彙間的關係，不過這次project為了快點有個雛形出來，就先選用這個比較多人做過的方式。
+3. 在cnn model的optimizer目前是是用Adam algorithm，而我們這個主題來講，training data 的參考性應該是文章發布時間點越接近現在的資料，參考性越高，這種型態的資料，之前有看過別人KDD Cup冠軍的做法，是用一種叫time-deterministic gradient descent的方式，會將越近期的data放到越後面的step來train，因此整個model就會越偏向將近期的資料預測準。
+4. 在作者的資訊上，目前還沒有著墨到，這也是很好的方向可以去找出更多的feature，比如說找出某些作者是比較頃向發噓文的，或者用look alike的方式找出某些行為跟那些發噓文的人很類似的，來判斷他可能也是一個未來會發噓文的作者，應該是可以讓model更精準一點。
+5. 目前使用到的資料都只有那些標題為[新聞]的文章，其他文章其實應該也有很大的參考價值。比如說某些主題的發酵，都是從某個爆文的[爆卦]文開始，因此要是把這個部分的資訊也加入model，應該也可以提升一些精準度。
+
+
+
+
+
+
+
