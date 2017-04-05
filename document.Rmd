@@ -1,5 +1,5 @@
 ---
-title: "ptt gossip 噓文數預測神器"
+title: "ptt gossip 噓數預測神器"
 author: "Lawrence Siao"
 date: "April 5, 2017"
 output: html_document
@@ -156,8 +156,6 @@ CNN with 4 meta-features: 純粹 CNN text model加入噓文指數、推文指數
 5. 目前使用到的資料都只有那些標題為[新聞]的文章，其他文章其實應該也有很大的參考價值。比如說某些主題的發酵，都是從某個爆文的[爆卦]文開始，因此要是把這個部分的資訊也加入model，應該也可以提升一些精準度。
 
 
-
-
-
+** code:https://github.com/lawrencesiao/ptt_gossip ** 
 
 

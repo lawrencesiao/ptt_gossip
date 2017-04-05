@@ -23,7 +23,7 @@ from utils import notification
 
 os.environ['TF_CPP_MIN_LOG_LEVEL']='2'
 
-d = pd.read_csv("finals_meta.csv", 
+d = pd.read_csv("data/finals_meta.csv", 
                 usecols=('content_split','score_positive','score_hate','score_neutral','hour_tag','n_hate'))
 
 d=d[d['content_split'].notnull()]
